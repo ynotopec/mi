@@ -70,7 +70,6 @@ kubectl create secret generic pull-secret \
 #  name: pull-secret
 #  namespace: ${serviceName}
 #data:
-#  .dockerconfigjson: eyJhdXRocyI6eyJvY3A0LTctcmVnaXN0cnkub2NwNC03LmluZm9jZXBvLmNvbTo1MDAwIjp7ImF1dGgiOiJibTl1WVcxbE9tNXZjR0Z6YzNkdmNtUT0ifX19
 #type: kubernetes.io/dockerconfigjson
 #EOF
 cat <<EOF | oc apply -f -
