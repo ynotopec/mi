@@ -1,0 +1,118 @@
+#!/bin/bash
+
+<syntaxhighlight lang="bash">
+
+==MI GET STARTED==
+#https://developer.ibm.com/tutorials/build-docker-images-from-github-source-using-openshift-pipelines/
+#https://cookbook.openshift.org/image-registry-and-image-streams/how-do-i-push-an-image-to-the-internal-image-registry.html
+
+yum install podman zstd -y
+
+podman login ocp4-7-registry.ocp4-7.infocepo.com:5000
+
+serviceName=http-hello
+mkdir -p ~/${serviceName}
+cd ~/${serviceName}
+#content
+mkdir -p html
+cat << EOT>html/index.html
+<!DOCTYPE html>
+<html>
+    <head>
+        HEAD
+    </head>
+    <body>
+        HELLO WORLD !
+    </body>
+</html>
+EOT
+#https://hub.docker.com/r/nginxinc/nginx-unprivileged
+cat << EOT>Dockerfile
+FROM nginxinc/nginx-unprivileged
+COPY html /usr/share/nginx/html
+EOT
+#buildah bud -t ${serviceName} .
+#cat << EOT>Dockerfile
+#FROM nginx
+#COPY html /usr/share/nginx/html
+#EOT
+podman build -t ${serviceName} .
+#podman rm -f --all
+#podman run --name ${serviceName} -d -p 8080:8080 ${serviceName}
+podman save ${serviceName} |zstd >~/${serviceName}.tar.zst
+
+
+serviceName=http-hello
+yum install podman zstd -y
+podman login ocp4-7-registry.ocp4-7.infocepo.com:5000
+
+cat ${XDG_RUNTIME_DIR}/containers/auth.json >~/pull-secret.json
+zstdcat ~/${serviceName}.tar.zst |podman load
+#skopeo delete --tls-verify=false docker://ocp4-7-registry.ocp4-7.infocepo.com:5000/images/http-hello
+podman push ${serviceName} docker://ocp4-7-registry.ocp4-7.infocepo.com:5000/images/${serviceName}:latest
+#buildah push --tls-verify=false ${serviceName} docker://ocp4-7-registry.ocp4-7.infocepo.com:5000/images/http-hello:latest
+#curl -u noname:nopassword https://ocp4-7-registry.ocp4-7.infocepo.com:5000/v2/_catalog |jq
+kubectl delete namespace ${serviceName}
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${serviceName}
+EOF
+#oc set data secret/pull-secret -n ${serviceName} --from-file=.dockerconfigjson=~/pull-secret.json
+kubectl create secret generic pull-secret \
+    --from-file=.dockerconfigjson=$(realpath ~/pull-secret.json ) \
+    --type=kubernetes.io/dockerconfigjson -n ${serviceName}
+#cat <<EOF | oc apply -f -
+#apiVersion: v1
+#kind: Secret
+#metadata:
+#  name: pull-secret
+#  namespace: ${serviceName}
+#data:
+#  .dockerconfigjson: eyJhdXRocyI6eyJvY3A0LTctcmVnaXN0cnkub2NwNC03LmluZm9jZXBvLmNvbTo1MDAwIjp7ImF1dGgiOiJibTl1WVcxbE9tNXZjR0Z6YzNkdmNtUT0ifX19
+#type: kubernetes.io/dockerconfigjson
+#EOF
+cat <<EOF | oc apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${serviceName}
+  namespace: ${serviceName}
+spec:
+  selector:
+    matchLabels:
+      app: ${serviceName}
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ${serviceName}
+    spec:
+      containers:
+      - name: ${serviceName}
+        image: ocp4-7-registry.ocp4-7.infocepo.com:5000/images/${serviceName}:latest
+        ports:
+        - containerPort: 8080
+      imagePullSecrets:
+      - name: pull-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${serviceName}
+  namespace: ${serviceName}
+spec:
+  selector:
+    app: ${serviceName}
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+EOF
+oc create route edge --service=${serviceName} --hostname=${serviceName}.apps.ocp4-7.infocepo.com -n ${serviceName}
+#kubectl get route.route.openshift.io/${serviceName} -n ${serviceName}
+#curl -k https://${serviceName}.apps.ocp4-7.infocepo.com
+
+
+</syntaxhighlight lang="bash">
